@@ -899,8 +899,12 @@ func TestTokenMatchClaims(t *testing.T) {
 		t.Fatalf("BUG: cannot JWT token: %s", err)
 	}
 	f := func(tkn *Token, claims map[string]string, want bool) {
+		parsedClaims := make([]*Claim, 0, len(claims))
+		for k, v := range claims {
+			parsedClaims = append(parsedClaims, NewClaim(k, v))
+		}
 		t.Helper()
-		got := tkn.MatchClaims(claims)
+		got := tkn.MatchClaims(parsedClaims)
 		if got != want {
 			t.Fatalf("unexpected match: (-%v;+%v)", want, got)
 		}

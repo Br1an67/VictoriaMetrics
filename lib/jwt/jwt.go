@@ -267,90 +267,65 @@ func (t *Token) Parse(src string, enforceAuthPrefix bool) error {
 	return nil
 }
 
+// Issuer returns `iss` claim value from token body
+func (t *Token) Issuer() string {
+	return t.body.Iss
+}
+
 // MatchClaims checks if Token has all given claims
 //
-// claim key dot . used as a separator for nested keys lookup
-// For example, token claim key: audit.permissions.0 could be used to access nested array at:
-// {"vm_access": {}, "audit": {"team": "dev", "access_modes": ["read","write","admin"], "permissions": [0,1,0] }}
-func (t *Token) MatchClaims(claims map[string]string) bool {
-	for key, value := range claims {
-		if !t.matchClaim(key, value) {
+// An empty claims always match
+func (t *Token) MatchClaims(claims []*Claim) bool {
+	if len(claims) == 0 {
+		return true
+	}
+	for _, claim := range claims {
+		if !t.matchClaim(claim) {
 			return false
 		}
 	}
 	return true
 }
 
-// Issuer returns `iss` claim value from token body
-func (t *Token) Issuer() string {
-	return t.body.Iss
-}
-func (t *Token) matchClaim(key, value string) bool {
-	var gotV *fastjson.Value
-	if key == "scope" {
-		// special case, scope could be both string and []string
-		return value == t.body.Scope
+func (t *Token) matchClaim(c *Claim) bool {
+	if len(c.nestedKeys) == 0 {
+		return true
 	}
-	if idx := strings.Index(key, "."); idx > 0 {
-		keys := splitNestedClaimKey(key)
-		if keys[0] == "vm_access" && t.body.vmAccessClaimObject != nil {
-			// fall back to object match for vm_access claim
-			keys = keys[1:]
-			gotV = t.body.vmAccessClaimObject.Get(keys...)
-		} else {
-			gotV = t.body.allClaims.Get(keys...)
+	var gotV *fastjson.Value
+	if c.nestedKeys[0] == "scope" {
+		// special case, scope could be both string and []string
+		return c.value == t.body.Scope
+	}
+	keys := c.nestedKeys
+	if keys[0] == "vm_access" && t.body.vmAccessClaimObject != nil {
+		// vm_access was encoded as a string in the token body; use the
+		// separately parsed vmAccessClaimObject for nested key lookup.
+		if len(keys) == 1 {
+			// vm_access is object type, it cannot match string
+			return false
 		}
+		keys = keys[1:]
+		gotV = t.body.vmAccessClaimObject.Get(keys...)
 	} else {
-		// direct match
-		gotV = t.body.allClaims.Get(key)
+		gotV = t.body.allClaims.Get(keys...)
 	}
 	if gotV == nil || gotV.Type() == fastjson.TypeArray || gotV.Type() == fastjson.TypeObject {
 		// key not found or has complex structure
 		return false
 	}
 	if gotV.Type() == fastjson.TypeString {
-		return bytesutil.ToUnsafeString(gotV.GetStringBytes()) == value
+		return bytesutil.ToUnsafeString(gotV.GetStringBytes()) == c.value
 	}
 	bb := claimValuePool.Get()
 	b := bb.B[:0]
 	b = gotV.MarshalTo(b)
 	bb.B = b
-	equal := string(b) == value
+	equal := string(b) == c.value
 	claimValuePool.Put(bb)
 	return equal
 }
 
 var claimValuePool bytesutil.ByteBufferPool
-
-func splitNestedClaimKey(key string) []string {
-	var keys []string
-	// TODO: remove memory allocations for escaping
-	var unescapedKey string
-	for {
-		idx := strings.IndexByte(key, '.')
-		if idx <= 0 {
-			if len(unescapedKey) > 0 {
-				key = unescapedKey + key
-			}
-			keys = append(keys, key)
-			return keys
-		}
-		if key[idx-1] == '\\' {
-			unescapedKey += key[:idx-1] + "."
-			key = key[idx+1:]
-			continue
-		}
-		if len(unescapedKey) > 0 {
-			unescapedKey += key[:idx]
-			keys = append(keys, unescapedKey)
-			key = key[idx+1:]
-			unescapedKey = ""
-			continue
-		}
-		keys = append(keys, key[:idx])
-		key = key[idx+1:]
-	}
-}
 
 // VMAccess return a reference to the VMAccessClaim
 // all data are valid until Token is reachable
@@ -756,3 +731,65 @@ func stringSliceFromJSONValue(dst []string, jv *fastjson.Value, key string) ([]s
 var parserPool fastjson.ParserPool
 
 var decodeb64BufferPool bytesutil.ByteBufferPool
+
+// Claim represents a single JWT token claim used for matching via Token.MatchClaims.
+// It supports dot-delimited nested key lookup within the token body JSON.
+type Claim struct {
+	nestedKeys []string
+	value      string
+}
+
+// NewClaim constructs a JWT token claim from the given key and value.
+// The key supports dot-delimited notation as a separator for nested key lookup.
+// To include a literal dot in a key segment, escape it with a backslash (e.g. "a\.b.c").
+//
+// For example, the key "audit.permissions.0" can be used to access a nested array element in:
+//
+// {"audit": {"permissions": [0, 1, 0]}}
+func NewClaim(key, value string) *Claim {
+	var nestedKeys []string
+	if idx := strings.Index(key, "."); idx > 0 {
+		nestedKeys = splitNestedClaimKey(key)
+	} else {
+		nestedKeys = []string{key}
+	}
+	return &Claim{
+		nestedKeys: nestedKeys,
+		value:      value,
+	}
+}
+
+// splitNestedClaimKey splits a dot-delimited claim key into individual path segments.
+// A dot preceded by a backslash (\.) is treated as a literal dot and not a delimiter.
+//
+// For example:
+//   - "a.b.c"   ? ["a", "b", "c"]
+//   - "a\.b.c"  ? ["a.b", "c"]
+func splitNestedClaimKey(key string) []string {
+	var keys []string
+	var unescapedKey string
+	for {
+		idx := strings.IndexByte(key, '.')
+		if idx <= 0 {
+			if len(unescapedKey) > 0 {
+				key = unescapedKey + key
+			}
+			keys = append(keys, key)
+			return keys
+		}
+		if key[idx-1] == '\\' {
+			unescapedKey += key[:idx-1] + "."
+			key = key[idx+1:]
+			continue
+		}
+		if len(unescapedKey) > 0 {
+			unescapedKey += key[:idx]
+			keys = append(keys, unescapedKey)
+			key = key[idx+1:]
+			unescapedKey = ""
+			continue
+		}
+		keys = append(keys, key[:idx])
+		key = key[idx+1:]
+	}
+}

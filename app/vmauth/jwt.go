@@ -52,11 +52,12 @@ type jwtCache struct {
 }
 
 type JWTConfig struct {
-	PublicKeys     []string          `yaml:"public_keys,omitempty"`
-	PublicKeyFiles []string          `yaml:"public_key_files,omitempty"`
-	SkipVerify     bool              `yaml:"skip_verify,omitempty"`
-	OIDC           *oidcConfig       `yaml:"oidc,omitempty"`
-	MatchClaims    map[string]string `yaml:"match_claims,omitempty"`
+	PublicKeys        []string          `yaml:"public_keys,omitempty"`
+	PublicKeyFiles    []string          `yaml:"public_key_files,omitempty"`
+	SkipVerify        bool              `yaml:"skip_verify,omitempty"`
+	OIDC              *oidcConfig       `yaml:"oidc,omitempty"`
+	MatchClaims       map[string]string `yaml:"match_claims,omitempty"`
+	parsedMatchClaims []*jwt.Claim
 
 	// verifierPool is used to verify JWT tokens.
 	// It is initialized from PublicKeys and/or PublicKeyFiles.
@@ -85,9 +86,12 @@ func parseJWTUsers(ac *AuthConfig) ([]*UserInfo, *oidcDiscovererPool, error) {
 		}
 		var claimsString string
 		sortedClaims = sortedClaims[:0]
+		parsedClaims := make([]*jwt.Claim, 0, len(jwtToken.MatchClaims))
 		for ck, cv := range jwtToken.MatchClaims {
 			sortedClaims = append(sortedClaims, fmt.Sprintf("%s=%s", ck, cv))
+			parsedClaims = append(parsedClaims, jwt.NewClaim(ck, cv))
 		}
+		ui.JWT.parsedMatchClaims = parsedClaims
 		sort.Strings(sortedClaims)
 		claimsString = strings.Join(sortedClaims, ",")
 
@@ -245,7 +249,7 @@ func getJWTUserInfo(ats []string) (*UserInfo, *jwt.Token) {
 
 func getUserInfoByJWTToken(tkn *jwt.Token, users []*UserInfo) *UserInfo {
 	for _, ui := range users {
-		if !tkn.MatchClaims(ui.JWT.MatchClaims) {
+		if !tkn.MatchClaims(ui.JWT.parsedMatchClaims) {
 			continue
 		}
 
