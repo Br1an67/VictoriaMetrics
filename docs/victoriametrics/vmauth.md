@@ -456,7 +456,7 @@ users:
 
 ```
 
-JWT claim-based mathing can be combined with
+JWT claim-based matching can be combined with
 [JWT claim-based request templating](/victoriametrics/vmauth/#jwt-claim-based-request-templating)
 for dynamic URL rewriting based on `vm_access` claim fields.
 
