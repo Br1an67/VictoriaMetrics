@@ -1307,7 +1307,7 @@ users:
 	request.Header.Set(`Authorization`, `Bearer `+nestedToken)
 	responseExpected = `
 statusCode=200
-path: /dev/route
+path: /less_claims/route
 query:
 headers:
 `
@@ -1316,20 +1316,20 @@ users:
 - jwt:
     skip_verify: true
     match_claims:
-     team: dev
+     team: ops
      nested.scopes.1: "logs"
      nested.department_id: "0"
   url_map:
     - src_paths: ["/route"]
-      url_prefix: {BACKEND}/dev
+      url_prefix: {BACKEND}/more_claims
 - jwt:
     skip_verify: true
     match_claims:
-     team: ops
+     team: dev
      nested.team_permissions.write: "1"
   url_map:
     - src_paths: ["/route"]
-      url_prefix: {BACKEND}/ops
+      url_prefix: {BACKEND}/less_claims
 `,
 		request,
 		responseExpected,
