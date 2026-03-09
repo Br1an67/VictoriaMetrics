@@ -287,7 +287,7 @@ func getUserInfoByJWTToken(tkn *jwt.Token, users []*UserInfo) *UserInfo {
 			if *logInvalidAuthTokens {
 				logger.Infof("cannot verify jwt token: %s", err)
 			}
-			continue
+			return nil
 		}
 
 		return ui

@@ -305,7 +305,7 @@ If the OIDC provider is temporarily unavailable during a key refresh, `vmauth` c
 If no keys have been fetched yet (e.g., on startup when the provider is unreachable), the config section is skipped during authentication.
 
 
-#### JWT claim-based request routing
+#### JWT claim matching
 
 `vmauth` can route requests to different backends depending on the claims contained
 in the provided [JWT token](https://www.jwt.io/) based on `match_claims`{{% available_from "#" %}} field.
@@ -396,7 +396,7 @@ users:
   url_prefix: "http://victoria-metrics:8428/"
 ```
 
-#### JWT claim-based request routing. Conflict resolution
+#### JWT claim matching. Conflict resolution
 
 When multiple users have `match_claims` entries that all match the incoming token,
 `vmauth` selects the user whose `match_claims` map contains the **greatest number of entries**.
@@ -456,7 +456,7 @@ users:
 
 ```
 
-JWT claim-based routing can be combined with
+JWT claim-based mathing can be combined with
 [JWT claim-based request templating](/victoriametrics/vmauth/#jwt-claim-based-request-templating)
 for dynamic URL rewriting based on `vm_access` claim fields.
 
